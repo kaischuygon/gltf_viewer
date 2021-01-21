@@ -33,7 +33,7 @@ struct Context {
     GLuint program;
     GLuint emptyVAO;
     float elapsedTime;
-    std::string gltfFilename = "cube_rgb.gltf";
+    std::string gltfFilename = "triangle.gltf";
     // Add more variables here...
 };
 
