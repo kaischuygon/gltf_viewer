@@ -77,8 +77,6 @@ Note 2: Every time you change the `MODEL_VIEWER_ROOT` variable you have to close
 
 Note 3: CMake can have problem handling path names that contain non-ASCII (international) characters. Assuming that you don't want to change your language settings, a simple fix is to move the gltf_viewer folder to a folder with only ASCII symbols in it's full path.
 
-Note 4: make sure that you check the C++ development option when install Visual Studio Community edition. Otherwise CMake will probably complain about not finding a compiler.
-
 
 ## Build instructions for macOS
 
