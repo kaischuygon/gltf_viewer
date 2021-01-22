@@ -54,7 +54,7 @@ static std::vector<Node> create_nodes_from_json(const json::Value &value)
                 nodes[i].rotation[j] = float(tmp[j].GetDouble());
             }
         } else {
-            nodes[i].rotation = glm::quat();
+            nodes[i].rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
         }
         if (value[i].HasMember("scale")) {
             const json::Value &tmp = value[i]["scale"];
