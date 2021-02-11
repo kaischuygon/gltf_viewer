@@ -23,9 +23,14 @@ struct Drawable {
 };
 
 typedef std::vector<Drawable> DrawableList;
+typedef std::vector<GLuint> TextureList;
 
 void create_drawables_from_gltf_asset(DrawableList &drawables, const GLTFAsset &asset);
 
 void destroy_drawables(DrawableList &drawables);
+
+void create_textures_from_gltf_asset(TextureList &textures, const GLTFAsset &asset);
+
+void destroy_textures(TextureList &textures);
 
 }  // namespace gltf

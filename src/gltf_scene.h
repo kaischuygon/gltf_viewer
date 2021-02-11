@@ -23,6 +23,7 @@ struct Scene {
 struct Node {
     int mesh;
     std::string name;
+    std::vector<int> children;
     glm::vec3 translation;
     glm::quat rotation;
     glm::vec3 scale;
@@ -30,16 +31,51 @@ struct Node {
     bool hasMatrix;
 };
 
+struct MaterialTexture {
+    int index;
+    int texCoord;
+    float scale;     // Only used by normal map textures
+    float strength;  // Only used by occlusion textures
+};
+
 struct PBRMetallicRoughness {
     glm::vec4 baseColorFactor;
     float metallicFactor;
     float roughnessFactor;
+    MaterialTexture baseColorTexture;
+    MaterialTexture metallicRoughnessTexture;
+    bool hasBaseColorTexture;
+    bool hasMetallicRoughnessTexture;
 };
 
 struct Material {
     std::string name;
     MaterialType type;
     PBRMetallicRoughness pbrMetallicRoughness;
+    MaterialTexture normalTexture;
+    MaterialTexture occlusionTexture;
+    bool hasNormalTexture;
+    bool hasOcclusionTexture;
+};
+
+struct Texture {
+    int source;
+    int sampler;
+    bool hasSampler;
+};
+
+struct Image {
+    std::string uri;
+    int width;               // Image width (in pixels)
+    int height;              // Image height (in pixels)
+    std::vector<char> data;  // Pixel data in RGBA8 format
+};
+
+struct Sampler {
+    int magFilter;
+    int minFilter;
+    int wrapS;
+    int wrapT;
 };
 
 struct Attribute {
@@ -51,6 +87,7 @@ struct Primitive {
     std::vector<Attribute> attributes;
     int indices;
     int material;
+    bool hasMaterial;
 };
 
 struct Mesh {
@@ -62,6 +99,7 @@ struct Accessor {
     int bufferView;
     int componentType;
     int count;
+    int byteOffset;
     std::string type;
 };
 
@@ -82,6 +120,9 @@ struct GLTFAsset {
     std::vector<Scene> scenes;
     std::vector<Node> nodes;
     std::vector<Material> materials;
+    std::vector<Texture> textures;
+    std::vector<Image> images;
+    std::vector<Sampler> samplers;
     std::vector<Mesh> meshes;
     std::vector<Accessor> accessors;
     std::vector<BufferView> bufferViews;

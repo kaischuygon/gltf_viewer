@@ -36,26 +36,29 @@ void create_drawables_from_gltf_asset(DrawableList &drawables, const GLTFAsset &
             const Accessor &accessor = asset.accessors[it.index];
             const BufferView &bufferView = asset.bufferViews[accessor.bufferView];
 
+            // Note: must add accessor's byte offset to buffer-view's
+            int byteOffset = bufferView.byteOffset + accessor.byteOffset;
+
             if (it.name.compare("POSITION") == 0) {
                 glEnableVertexAttribArray(POSITION);
                 // Note: we often declare the position attribute as vec4 in the
                 // vertex shader, even if the actual type in the buffer is
                 // vec3. This is valid and will give us a homogenous coordinate
                 // with the last component assigned the value 1.
-                glVertexAttribPointer(POSITION, 3 /*VEC3*/, accessor.componentType, GL_FALSE, 0,
-                                      (GLvoid *)(intptr_t)bufferView.byteOffset);
+                glVertexAttribPointer(POSITION, 3 /*VEC3*/, accessor.componentType, GL_FALSE,
+                                      bufferView.byteStride, (GLvoid *)(intptr_t)byteOffset);
             } else if (it.name.compare("COLOR_0") == 0) {
                 glEnableVertexAttribArray(COLOR_0);
-                glVertexAttribPointer(COLOR_0, 4 /*VEC4*/, accessor.componentType, GL_FALSE, 0,
-                                      (GLvoid *)(intptr_t)bufferView.byteOffset);
+                glVertexAttribPointer(COLOR_0, 4 /*VEC4*/, accessor.componentType, GL_FALSE,
+                                      bufferView.byteStride, (GLvoid *)(intptr_t)byteOffset);
             } else if (it.name.compare("NORMAL") == 0) {
                 glEnableVertexAttribArray(NORMAL);
-                glVertexAttribPointer(NORMAL, 3 /*VEC3*/, accessor.componentType, GL_FALSE, 0,
-                                      (GLvoid *)(intptr_t)bufferView.byteOffset);
+                glVertexAttribPointer(NORMAL, 3 /*VEC3*/, accessor.componentType, GL_FALSE,
+                                      bufferView.byteStride, (GLvoid *)(intptr_t)byteOffset);
             } else if (it.name.compare("TEXCOORD_0") == 0) {
                 glEnableVertexAttribArray(TEXCOORD_0);
-                glVertexAttribPointer(TEXCOORD_0, 2 /*VEC2*/, accessor.componentType, GL_FALSE, 0,
-                                      (GLvoid *)(intptr_t)bufferView.byteOffset);
+                glVertexAttribPointer(TEXCOORD_0, 2 /*VEC2*/, accessor.componentType, GL_FALSE,
+                                      bufferView.byteStride, (GLvoid *)(intptr_t)byteOffset);
             }
             // You can add support for more named attributes here...
         }
@@ -78,6 +81,45 @@ void destroy_drawables(DrawableList &drawables)
         glDeleteVertexArrays(1, &drawables[i].vao);
     }
     drawables.clear();
+}
+
+void create_textures_from_gltf_asset(TextureList &textures, const GLTFAsset &asset)
+{
+    // First clean up existing OpenGL resources
+    destroy_textures(textures);
+
+    // Create one texture object per texture in the asset
+    textures.resize(asset.textures.size());
+    for (unsigned i = 0; i < asset.textures.size(); ++i) {
+        const Image &image = asset.images[asset.textures[i].source];
+
+        glGenTextures(1, &textures[i]);
+        glBindTexture(GL_TEXTURE_2D, textures[i]);
+        if (asset.textures[i].hasSampler) {
+            const Sampler &sampler = asset.samplers[asset.textures[i].sampler];
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, sampler.wrapS);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, sampler.wrapT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, sampler.minFilter);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, sampler.magFilter);
+        } else {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        }
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, image.width, image.height, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, &(image.data[0]));
+        // We also need to create a mipmap chain in case GL_TEXTURE_MIN_FILTER
+        // is set to something else than GL_NEAREST or GL_LINEAR
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void destroy_textures(TextureList &textures)
+{
+    glDeleteTextures(textures.size(), &textures[0]);
+    textures.clear();
 }
 
 }  // namespace gltf
