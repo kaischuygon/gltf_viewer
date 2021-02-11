@@ -176,6 +176,43 @@ GLuint load_texture_2d(const std::string &filename)
     return texture;
 }
 
+// Load cubemap texture and let OpenGL generate a mipmap chain
+GLuint load_cubemap(const std::string &dirname)
+{
+    const char *filenames[] = {"posx.png", "negx.png", "posy.png",
+                               "negy.png", "posz.png", "negz.png"};
+    const GLenum targets[] = {GL_TEXTURE_CUBE_MAP_POSITIVE_X, GL_TEXTURE_CUBE_MAP_NEGATIVE_X,
+                              GL_TEXTURE_CUBE_MAP_POSITIVE_Y, GL_TEXTURE_CUBE_MAP_NEGATIVE_Y,
+                              GL_TEXTURE_CUBE_MAP_POSITIVE_Z, GL_TEXTURE_CUBE_MAP_NEGATIVE_Z};
+    const unsigned nSides = 6;  // A cube always has six sides...
+
+    // Create texture object for the cubemap
+    GLuint texture;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, texture);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    for (unsigned i = 0; i < nSides; ++i) {
+        // Load image for current cube side
+        std::string filename = dirname + "/" + filenames[i];
+        int width, height, comp;
+        uint8_t *image = stbi_load(filename.c_str(), &width, &height, &comp, 4);
+        if (image == nullptr) {
+            std::cerr << "Error: " << stbi_failure_reason() << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+        glTexImage2D(targets[i], 0, GL_SRGB8_ALPHA8, width, height,
+                     0, GL_RGBA, GL_UNSIGNED_BYTE, image);
+        stbi_image_free(image);  // Clean up resources
+    }
+    glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+
+    return texture;
+}
+
 // Load cubemap with pre-computed mipmap chain
 GLuint load_cubemap_prefiltered(const std::string &dirname)
 {
@@ -203,7 +240,7 @@ GLuint load_cubemap_prefiltered(const std::string &dirname)
             int width, height, comp;
             uint8_t *image = stbi_load(filename.c_str(), &width, &height, &comp, 4);
             if (image == nullptr) {
-                std::cout << "Error: " << stbi_failure_reason() << std::endl;
+                std::cerr << "Error: " << stbi_failure_reason() << std::endl;
                 std::exit(EXIT_FAILURE);
             }
             glTexImage2D(targets[j], i, GL_SRGB8_ALPHA8, width, height, 0, GL_RGBA,
