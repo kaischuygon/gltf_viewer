@@ -118,6 +118,7 @@ void create_textures_from_gltf_asset(TextureList &textures, const GLTFAsset &ass
 
 void destroy_textures(TextureList &textures)
 {
+    if (!textures.size()) return;
     glDeleteTextures(textures.size(), &textures[0]);
     textures.clear();
 }
