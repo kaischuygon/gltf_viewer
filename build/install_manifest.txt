@@ -1,0 +1,1 @@
+/home/kschuygon/Documents/datorgrafik/gltf_viewer/bin/model_viewer

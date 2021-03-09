@@ -24,7 +24,7 @@
 
 // Struct for our application context
 struct Context {
-    int width = 512;
+    int width = 1024;
     int height = 512;
     GLFWwindow *window;
     gltf::GLTFAsset asset;
@@ -33,8 +33,28 @@ struct Context {
     GLuint program;
     GLuint emptyVAO;
     float elapsedTime;
-    std::string gltfFilename = "triangle.gltf";
+    std::string gltfFilename = "lpshead.gltf";
     // Add more variables here...
+    glm::vec3 diffuseColor;
+    bool ambientEnabled;
+    bool diffuseEnabled;
+    bool specularEnabled;
+    float specularPower;
+    glm::vec3 lightPosition;
+    glm::vec3 bgColor;
+    bool ortho;
+    bool gamma;
+    float zoom;
+
+    bool envMapping;
+    int textureIndex;
+    int sceneIndex;
+    GLuint cubemap;
+
+    gltf::TextureList textures;
+    bool texMapping;
+    bool textureCoordinates;
+    bool lighting;
 };
 
 // Returns the absolute path to the src/shader directory
@@ -46,6 +66,16 @@ std::string shader_dir(void)
         std::exit(EXIT_FAILURE);
     }
     return rootDir + "/src/shaders/";
+}
+
+std::string cubemap_dir(void)
+{
+    std::string rootDir = cg::get_env_var("MODEL_VIEWER_ROOT");
+    if (rootDir.empty()) {
+        std::cout << "Error: MODEL_VIEWER_ROOT is not set." << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+    return rootDir + "/assets/cubemaps/";
 }
 
 // Returns the absolute path to the assets/gltf directory
@@ -65,6 +95,23 @@ void do_initialization(Context &ctx)
 
     gltf::load_gltf_asset(ctx.gltfFilename, gltf_dir(), ctx.asset);
     gltf::create_drawables_from_gltf_asset(ctx.drawables, ctx.asset);
+    gltf::create_textures_from_gltf_asset(ctx.textures, ctx.asset);
+
+    ctx.bgColor = glm::vec3(0.3f);
+    ctx.diffuseColor = glm::vec3(0.0f, 0.5f, 0.0f);
+    ctx.specularPower = 16.0f;
+    ctx.diffuseEnabled = ctx.ambientEnabled = ctx.specularEnabled = true;
+    ctx.lightPosition = glm::vec3(1, 1, 1);  // place light at (1,1,1) by default
+    ctx.zoom = 60.0f;
+    ctx.gamma = true;
+
+    // ctx.envMapping = true;
+    ctx.sceneIndex = 2;
+    ctx.textureIndex = 4;
+
+    // ctx.texMapping = true;
+    // ctx.textureCoordinates = true;
+    // ctx.lighting = true;
 }
 
 void draw_scene(Context &ctx)
@@ -75,17 +122,104 @@ void draw_scene(Context &ctx)
     // Set render state
     glEnable(GL_DEPTH_TEST);  // Enable Z-buffering
 
+    glm::mat4 Projection = glm::mat4(1.0f);
+    glm::mat4 View = glm::mat4(1.0f);
+    glm::mat4 Model = glm::mat4(1.0f);
+
+    // Projection Matrix
+    if (ctx.ortho) Projection = glm::ortho(-float(ctx.width / ctx.height),   // left
+                                            float(ctx.width / ctx.height),   // right
+                                            -1.0f, 1.0f,                     // top, bottom
+                                            0.1f, 5.0f);                     // zNear, zFar
+    else Projection = glm::perspective( glm::radians(ctx.zoom),                // FOV
+                                        float(ctx.width) / float(ctx.height),  // view ratio
+                                        0.1f,                                  // zNear
+                                        10.0f);                                // zFar
+
+    // Camera matrix
+    View = glm::lookAt(glm::vec3(1, 1, 1),  // Camera is at (1,1,1) in World Space
+                       glm::vec3(0, 0, 0),  // looks at the origin
+                       glm::vec3(0, 1, 0)   // Head is up
+                       ) * glm::mat4(ctx.trackball.orient);
+
+    // Model matrix : an identity matrix (model will be at the origin)
+    glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), glm::vec3(0.75f));  // scale by 0.5
+    glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(0.0f), glm::vec3(1, 0, 0));
+    glm::mat4 translationMatrix = glm::mat4(1.0f);
+    Model = translationMatrix * rotationMatrix * scaleMatrix;
+
+    std::vector<std::string> selectedCubemap{"0.125/", "0.5/", "2/", "8/", "32/", "128/", "512/", "2048/"};
+    std::vector<std::string> selectedScene{"Forrest/", "LarnacaCastle/", "RomeChurch/"};
+
+    // set active texture unit (ASSIGNMENT 3 PART 2)
+    ctx.cubemap = cg::load_cubemap(cubemap_dir() + selectedScene[ctx.sceneIndex] + "prefiltered/" + selectedCubemap[ctx.textureIndex]);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, ctx.cubemap);
+
     // Define per-scene uniforms
     glUniform1f(glGetUniformLocation(ctx.program, "u_time"), ctx.elapsedTime);
-    // ...
+    glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_projection"), 1, GL_FALSE, &Projection[0][0]);
+    glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_view"), 1, GL_FALSE, &View[0][0]);
+    glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_model"), 1, GL_FALSE, &Model[0][0]);
 
+    if (ctx.ambientEnabled) glUniform1f(glGetUniformLocation(ctx.program, "u_ambientEnabled"), 1.0);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_ambientEnabled"), 0.0);
+
+    if (ctx.diffuseEnabled) glUniform1f(glGetUniformLocation(ctx.program, "u_diffuseEnabled"), 1.0);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_diffuseEnabled"), 0.0);
+
+    if (ctx.specularEnabled) glUniform1f(glGetUniformLocation(ctx.program, "u_specularEnabled"), 1.0);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_specularEnabled"), 0.0);
+
+    glUniform3f(glGetUniformLocation(ctx.program, "u_diffuseColor"), ctx.diffuseColor[0], ctx.diffuseColor[1], ctx.diffuseColor[2]);
+
+    glUniform1f(glGetUniformLocation(ctx.program, "u_specularPower"), ctx.specularPower);
+    glUniform3f(glGetUniformLocation(ctx.program, "u_lightPosition"), ctx.lightPosition[0], ctx.lightPosition[1], ctx.lightPosition[2]);
+
+    if (ctx.gamma) glUniform1f(glGetUniformLocation(ctx.program, "u_gamma"), 1.0f);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_gamma"), 0.0f);
+
+    if (ctx.textureCoordinates) glUniform1f(glGetUniformLocation(ctx.program, "u_texCoordinates"), 1.0f);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_texCoordinates"), 0.0f);
+
+    if (ctx.envMapping) glUniform1f(glGetUniformLocation(ctx.program, "u_envMapping"), 1.0f);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_envMapping"), 0.0f);
+
+    if (ctx.texMapping) glUniform1f(glGetUniformLocation(ctx.program, "u_texMapping"), 1.0f);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_texMapping"), 0.0f);
+
+    if (ctx.lighting) glUniform1f(glGetUniformLocation(ctx.program, "u_lighting"), 1.0f);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_lighting"), 0.0f);
+
+    glUniform1i(glGetUniformLocation(ctx.program, "u_cubemap"), 0);
+    
     // Draw scene
     for (unsigned i = 0; i < ctx.asset.nodes.size(); ++i) {
         const gltf::Node &node = ctx.asset.nodes[i];
         const gltf::Drawable &drawable = ctx.drawables[node.mesh];
 
         // Define per-object uniforms
-        // ...
+        
+        // texture mapping (ASSIGNMENT 3 PART 3)
+        const gltf::Mesh &mesh = ctx.asset.meshes[node.mesh];
+        if (mesh.primitives[0].hasMaterial) {
+            const gltf::Primitive &primitive = mesh.primitives[0];
+            const gltf::Material &material = ctx.asset.materials[primitive.material];
+            const gltf::PBRMetallicRoughness &pbr = material.pbrMetallicRoughness;
+
+            // Define material textures and uniforms
+            if (pbr.hasBaseColorTexture) {
+                GLuint texture_id = ctx.textures[pbr.baseColorTexture.index];
+                // Bind texture and define uniforms...
+                glActiveTexture(GL_TEXTURE1);
+                glBindTexture(GL_TEXTURE_2D, texture_id);
+                glUniform1i(glGetUniformLocation(ctx.program, "u_texture"), 1);
+            } else {
+                // Need to handle this case as well, by telling
+                // the shader that no texture is available
+                ctx.texMapping = false;
+            }
+        }
 
         // Draw object
         glBindVertexArray(drawable.vao);
@@ -105,7 +239,7 @@ void do_rendering(Context &ctx)
     cg::reset_gl_render_state();
 
     // Clear color and depth buffers
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClearColor(ctx.bgColor[0], ctx.bgColor[1], ctx.bgColor[2], 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     draw_scene(ctx);
@@ -169,6 +303,11 @@ void scroll_callback(GLFWwindow *window, double x, double y)
     // Forward event to ImGui
     ImGui_ImplGlfw_ScrollCallback(window, x, y);
     if (ImGui::GetIO().WantCaptureMouse) return;
+
+    Context *ctx = static_cast<Context *>(glfwGetWindowUserPointer(window));
+    ctx->zoom -= float(y);
+    if (ctx->zoom <= 1.0f) ctx->zoom = 1.0f;
+    if (ctx->zoom >= 110.0f) ctx->zoom = 110.0f;
 }
 
 void resize_callback(GLFWwindow *window, int width, int height)
@@ -228,7 +367,35 @@ int main(int argc, char *argv[])
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-        // ImGui::ShowDemoWindow();
+        if (ImGui::Begin("Settings")) {
+            if (ImGui::CollapsingHeader("Material")) {
+                ImGui::Checkbox("Diffuse Enabled", &ctx.diffuseEnabled);
+                if(!ctx.texMapping || !ctx.envMapping) ImGui::ColorEdit3("Diffuse Color", &ctx.diffuseColor[0]);
+                ImGui::SliderFloat("Specular power", &ctx.specularPower, 5.0f, 50.0f);
+                ImGui::Checkbox("Specular Enabled", &ctx.specularEnabled);
+            }
+            if (ImGui::CollapsingHeader("Lighting")) {
+                ImGui::SliderFloat3("Light Position", &ctx.lightPosition[0], 0, 1);
+                ImGui::Checkbox("Ambient Enabled", &ctx.ambientEnabled);
+            }
+            if (ImGui::CollapsingHeader("Background")) {
+                ImGui::ColorEdit3("Background Color", &ctx.bgColor[0]);
+            }
+            if (ImGui::CollapsingHeader("Mapping")) {
+                if (!ctx.texMapping) ImGui::Checkbox("Environment Mapping", &ctx.envMapping);
+                if (ctx.envMapping) ImGui::SliderInt("Scene", &ctx.sceneIndex, 0, 2);
+                if (ctx.envMapping) ImGui::SliderInt("Texture ID", &ctx.textureIndex, 0, 7);
+                
+                if (!ctx.envMapping) ImGui::Checkbox("Texture Mapping", &ctx.texMapping);
+                if (ctx.texMapping) ImGui::Checkbox("Blinn-Phong Lighting", &ctx.lighting);
+            }
+            if (ImGui::CollapsingHeader("Misc")) {
+                ImGui::Checkbox("Orthographic Projection", &ctx.ortho);
+                ImGui::Checkbox("Gamma Correction", &ctx.gamma);
+                ImGui::Checkbox("Texture Coordinates", &ctx.textureCoordinates);
+            }
+        }
+        ImGui::End();
         do_rendering(ctx);
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
