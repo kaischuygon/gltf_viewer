@@ -33,7 +33,7 @@ struct Context {
     GLuint program;
     GLuint emptyVAO;
     float elapsedTime;
-    std::string gltfFilename = "lpshead.gltf";
+    std::string gltfFilename = "teapot.gltf";
     // Add more variables here...
     glm::vec3 diffuseColor;
     bool ambientEnabled;
@@ -55,6 +55,17 @@ struct Context {
     bool texMapping;
     bool textureCoordinates;
     bool lighting;
+
+    bool toonEnabled;
+    const float qmap[3][8] = {
+        {0.3, 0.3, 0.4, 0.4, 0.4, 0.8, 0.8, 0.9},
+        {0.2, 0.2, 0.4, 0.4, 0.6, 0.6, 0.8, 0.8},
+        {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8},
+    };  // quantization map textures
+    int qmapIndex;
+    GLuint quantizationTexture;
+    GLuint frameBuffer;
+    GLuint outlineTexture;
 };
 
 // Returns the absolute path to the src/shader directory
@@ -100,7 +111,7 @@ void do_initialization(Context &ctx)
     ctx.bgColor = glm::vec3(0.3f);
     ctx.diffuseColor = glm::vec3(0.0f, 0.5f, 0.0f);
     ctx.specularPower = 16.0f;
-    ctx.diffuseEnabled = ctx.ambientEnabled = ctx.specularEnabled = true;
+    ctx.diffuseEnabled = ctx.ambientEnabled = true;
     ctx.lightPosition = glm::vec3(1, 1, 1);  // place light at (1,1,1) by default
     ctx.zoom = 60.0f;
     ctx.gamma = true;
@@ -112,55 +123,13 @@ void do_initialization(Context &ctx)
     // ctx.texMapping = true;
     // ctx.textureCoordinates = true;
     // ctx.lighting = true;
+
+    ctx.toonEnabled = true;
+    ctx.qmapIndex = 0;
 }
 
-void draw_scene(Context &ctx)
-{
-    // Activate shader program
-    glUseProgram(ctx.program);
-
-    // Set render state
-    glEnable(GL_DEPTH_TEST);  // Enable Z-buffering
-
-    glm::mat4 Projection = glm::mat4(1.0f);
-    glm::mat4 View = glm::mat4(1.0f);
-    glm::mat4 Model = glm::mat4(1.0f);
-
-    // Projection Matrix
-    if (ctx.ortho) Projection = glm::ortho(-float(ctx.width / ctx.height),   // left
-                                            float(ctx.width / ctx.height),   // right
-                                            -1.0f, 1.0f,                     // top, bottom
-                                            0.1f, 5.0f);                     // zNear, zFar
-    else Projection = glm::perspective( glm::radians(ctx.zoom),                // FOV
-                                        float(ctx.width) / float(ctx.height),  // view ratio
-                                        0.1f,                                  // zNear
-                                        10.0f);                                // zFar
-
-    // Camera matrix
-    View = glm::lookAt(glm::vec3(1, 1, 1),  // Camera is at (1,1,1) in World Space
-                       glm::vec3(0, 0, 0),  // looks at the origin
-                       glm::vec3(0, 1, 0)   // Head is up
-                       ) * glm::mat4(ctx.trackball.orient);
-
-    // Model matrix : an identity matrix (model will be at the origin)
-    glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), glm::vec3(0.75f));  // scale by 0.5
-    glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(0.0f), glm::vec3(1, 0, 0));
-    glm::mat4 translationMatrix = glm::mat4(1.0f);
-    Model = translationMatrix * rotationMatrix * scaleMatrix;
-
-    std::vector<std::string> selectedCubemap{"0.125/", "0.5/", "2/", "8/", "32/", "128/", "512/", "2048/"};
-    std::vector<std::string> selectedScene{"Forrest/", "LarnacaCastle/", "RomeChurch/"};
-
-    // set active texture unit (ASSIGNMENT 3 PART 2)
-    ctx.cubemap = cg::load_cubemap(cubemap_dir() + selectedScene[ctx.sceneIndex] + "prefiltered/" + selectedCubemap[ctx.textureIndex]);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, ctx.cubemap);
-
-    // Define per-scene uniforms
+void defineUniforms(Context &ctx) {
     glUniform1f(glGetUniformLocation(ctx.program, "u_time"), ctx.elapsedTime);
-    glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_projection"), 1, GL_FALSE, &Projection[0][0]);
-    glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_view"), 1, GL_FALSE, &View[0][0]);
-    glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_model"), 1, GL_FALSE, &Model[0][0]);
 
     if (ctx.ambientEnabled) glUniform1f(glGetUniformLocation(ctx.program, "u_ambientEnabled"), 1.0);
     else glUniform1f(glGetUniformLocation(ctx.program, "u_ambientEnabled"), 0.0);
@@ -191,7 +160,91 @@ void draw_scene(Context &ctx)
     if (ctx.lighting) glUniform1f(glGetUniformLocation(ctx.program, "u_lighting"), 1.0f);
     else glUniform1f(glGetUniformLocation(ctx.program, "u_lighting"), 0.0f);
 
+    if (ctx.toonEnabled) glUniform1f(glGetUniformLocation(ctx.program, "u_toonEnabled"), 1.0f);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_toonEnabled"), 0.0f);
+}
+
+void draw_scene(Context &ctx)
+{
+    // Activate shader program
+    glUseProgram(ctx.program);
+
+    // Set render state
+    glEnable(GL_DEPTH_TEST);  // Enable Z-buffering
+
+    glm::mat4 Projection = glm::mat4(1.0f);
+    glm::mat4 View = glm::mat4(1.0f);
+    glm::mat4 Model = glm::mat4(1.0f);
+
+    // Projection Matrix
+    if (ctx.ortho) Projection = glm::ortho(
+        -float(ctx.width / ctx.height), // left
+        float(ctx.width / ctx.height),  // right
+        -1.0f, 1.0f,                    // top, bottom
+        0.1f, 5.0f);                    // zNear, zFar
+    else Projection = glm::perspective( 
+        glm::radians(ctx.zoom),         // FOV
+        float(ctx.width / ctx.height),  // view ratio
+        0.1f, 10.0f);                   // zNear, zFar
+
+    // Camera matrix
+    View = glm::lookAt(
+        glm::vec3(1, 1, 1),  // Camera is at (1,1,1) in World Space
+        glm::vec3(0, 0, 0),  // looks at the origin
+        glm::vec3(0, 1, 0)   // Head is up
+        ) * glm::mat4(-ctx.trackball.orient);
+
+    // Model matrix : an identity matrix (model will be at the origin)
+    glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), glm::vec3(0.75f));  // scale by 0.5
+    glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1, 0, 0));
+    glm::mat4 translationMatrix = glm::mat4(1.0f);
+    Model = translationMatrix * rotationMatrix * scaleMatrix;
+
+    std::vector<std::string> selectedCubemap{"0.125/", "0.5/", "2/", "8/", "32/", "128/", "512/", "2048/"};
+    std::vector<std::string> selectedScene{"Forrest/", "LarnacaCastle/", "RomeChurch/"};
+
+    // set active texture unit (ASSIGNMENT 3 PART 2)
+    ctx.cubemap = cg::load_cubemap(cubemap_dir() + selectedScene[ctx.sceneIndex] + "prefiltered/" + selectedCubemap[ctx.textureIndex]);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, ctx.cubemap);
+
+    // Toon shading Quantization
+    glActiveTexture(GL_TEXTURE2);
+    glGenTextures(1, &ctx.quantizationTexture);
+    glBindTexture(GL_TEXTURE_1D, ctx.quantizationTexture);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage1D(GL_TEXTURE_1D, 0, GL_RED, 8, 0, GL_RED, GL_FLOAT, &ctx.qmap[ctx.qmapIndex]);
+
+    // Toon shading Outline
+    glActiveTexture(GL_TEXTURE3);
+    glGenTextures(1, &ctx.outlineTexture);
+    glBindTexture(GL_TEXTURE_2D, ctx.outlineTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, ctx.width, ctx.height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
+
+    // Build framebuffer
+    glGenFramebuffers(1, &ctx.frameBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx.frameBuffer);
+    glFramebufferTexture1D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_1D, ctx.quantizationTexture, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, ctx.outlineTexture, 0);
+
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE)
+        std::cout << "Framebuffer not complete" << std::endl;
+
+    // Define per-scene uniforms
+    defineUniforms(ctx);
+    glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_projection"), 1, GL_FALSE, &Projection[0][0]);
+    glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_view"), 1, GL_FALSE, &View[0][0]);
+    glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_model"), 1, GL_FALSE, &Model[0][0]);
     glUniform1i(glGetUniformLocation(ctx.program, "u_cubemap"), 0);
+    glUniform1i(glGetUniformLocation(ctx.program, "u_quantization"), 2);
+    glUniform1i(glGetUniformLocation(ctx.program, "u_outline"), 3);
+    // glUniform1i(glGetUniformLocation(ctx.program, "u_texFramebuffer"), ctx.frameBuffer);
     
     // Draw scene
     for (unsigned i = 0; i < ctx.asset.nodes.size(); ++i) {
@@ -199,7 +252,7 @@ void draw_scene(Context &ctx)
         const gltf::Drawable &drawable = ctx.drawables[node.mesh];
 
         // Define per-object uniforms
-        
+
         // texture mapping (ASSIGNMENT 3 PART 3)
         const gltf::Mesh &mesh = ctx.asset.meshes[node.mesh];
         if (mesh.primitives[0].hasMaterial) {
@@ -223,6 +276,9 @@ void draw_scene(Context &ctx)
 
         // Draw object
         glBindVertexArray(drawable.vao);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        // glBindTexture(GL_TEXTURE_1D, 0);
+        // glBindTexture(GL_TEXTURE_2D, 0);
         glDrawElements(GL_TRIANGLES, drawable.indexCount, drawable.indexType,
                        (GLvoid *)(intptr_t)drawable.indexByteOffset);
         glBindVertexArray(0);
@@ -231,6 +287,8 @@ void draw_scene(Context &ctx)
     // Clean up
     cg::reset_gl_render_state();
     glUseProgram(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDeleteFramebuffers(1, &ctx.frameBuffer);
 }
 
 void do_rendering(Context &ctx)
@@ -370,7 +428,8 @@ int main(int argc, char *argv[])
         if (ImGui::Begin("Settings")) {
             if (ImGui::CollapsingHeader("Material")) {
                 ImGui::Checkbox("Diffuse Enabled", &ctx.diffuseEnabled);
-                if(!ctx.texMapping || !ctx.envMapping) ImGui::ColorEdit3("Diffuse Color", &ctx.diffuseColor[0]);
+                if (!ctx.texMapping || !ctx.envMapping)
+                    ImGui::ColorEdit3("Diffuse Color", &ctx.diffuseColor[0]);
                 ImGui::SliderFloat("Specular power", &ctx.specularPower, 5.0f, 50.0f);
                 ImGui::Checkbox("Specular Enabled", &ctx.specularEnabled);
             }
@@ -385,14 +444,18 @@ int main(int argc, char *argv[])
                 if (!ctx.texMapping) ImGui::Checkbox("Environment Mapping", &ctx.envMapping);
                 if (ctx.envMapping) ImGui::SliderInt("Scene", &ctx.sceneIndex, 0, 2);
                 if (ctx.envMapping) ImGui::SliderInt("Texture ID", &ctx.textureIndex, 0, 7);
-                
+
                 if (!ctx.envMapping) ImGui::Checkbox("Texture Mapping", &ctx.texMapping);
                 if (ctx.texMapping) ImGui::Checkbox("Blinn-Phong Lighting", &ctx.lighting);
+                if (ctx.texMapping) ImGui::Checkbox("Texture Coordinates", &ctx.textureCoordinates);
+            }
+            if (ImGui::CollapsingHeader("Toon Shading")) {
+                ImGui::Checkbox("Toon Enabled", &ctx.toonEnabled);
+                if (ctx.toonEnabled) ImGui::SliderInt("Q-map", &ctx.qmapIndex, 0, 2);
             }
             if (ImGui::CollapsingHeader("Misc")) {
                 ImGui::Checkbox("Orthographic Projection", &ctx.ortho);
                 ImGui::Checkbox("Gamma Correction", &ctx.gamma);
-                ImGui::Checkbox("Texture Coordinates", &ctx.textureCoordinates);
             }
         }
         ImGui::End();
