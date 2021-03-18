@@ -21,6 +21,9 @@ uniform float u_lighting;
 uniform float u_toonEnabled; // enable toon shading
 uniform sampler1D u_quantization; 
 uniform sampler2D u_outline;
+uniform sampler2D u_depthMap;
+uniform float u_viewDepthMap;
+const float offset = 1.0 / 300.0;
 
 in vec3 N; // view space normal vector
 in vec3 L; // view space light direction vector
@@ -80,18 +83,47 @@ void main() {
         // frag_color = vec4(gammaCorrect(toonColor), 1.0);
 
         // outline
-        vec4 top = texture(u_outline, vec2(v_texcoord.x, v_texcoord.y + 1.0 / 200.0));
-        vec4 bottom = texture(u_outline, vec2(v_texcoord.x, v_texcoord.y - 1.0 / 200.0));
-        vec4 left = texture(u_outline, vec2(v_texcoord.x - 1.0 / 300.0, v_texcoord.y));
-        vec4 right = texture(u_outline, vec2(v_texcoord.x + 1.0 / 300.0, v_texcoord.y));
-        vec4 topLeft = texture(u_outline, vec2(v_texcoord.x - 1.0 / 300.0, v_texcoord.y + 1.0 / 200.0));
-        vec4 topRight = texture(u_outline, vec2(v_texcoord.x + 1.0 / 300.0, v_texcoord.y + 1.0 / 200.0));
-        vec4 bottomLeft = texture(u_outline, vec2(v_texcoord.x - 1.0 / 300.0, v_texcoord.y - 1.0 / 200.0));
-        vec4 bottomRight = texture(u_outline, vec2(v_texcoord.x + 1.0 / 300.0, v_texcoord.y - 1.0 / 200.0));
-        vec4 sx = -topLeft - 2 * left - bottomLeft + topRight   + 2 * right  + bottomRight;
-        vec4 sy = -topLeft - 2 * top  - topRight   + bottomLeft + 2 * bottom + bottomRight;
-        vec4 sobel = sqrt(sx * sx + sy * sy);
-        frag_color = sobel;
+        vec2 offsets[9] = vec2[](
+            vec2(-offset, offset),  // top-left
+            vec2( 0.0, offset),     // top-center
+            vec2( offset, offset),  // top-right
+            vec2(-offset, 0.0),     // center-left
+            vec2( 0.0, 0.0),        // center-center
+            vec2( offset, 0.0),     // center-right
+            vec2(-offset, -offset), // bottom-left
+            vec2( 0.0, -offset),    // bottom-center
+            vec2( offset, -offset)  // bottom-right    
+        );
+
+        float sobelX[9] = float[](
+            1, 0, -1,
+            2, 0, -2,
+            1, 0, -1
+        );
+
+        float sobelY[9] = float[](
+             1,  2,  1,
+             0,  0,  0,
+            -4, -2, -1
+        );
+
+        vec3 sampleTex[9];
+        for(int i = 0; i < 9; i++)
+            sampleTex[i] = vec3(texture(u_depthMap, v_texcoord.st + offsets[i]));
+
+        vec3 gx = vec3(0.0);
+        vec3 gy = vec3(0.0);
+        for(int i = 0; i < 9; i++) {
+            gx += sampleTex[i] * sobelX[i];
+            gy += sampleTex[i] * sobelY[i];
+        }
+
+        vec3 g = sqrt(gx * gx + gy * gy);
+        
+        frag_color = vec4(gammaCorrect(toonColor - g), 1.0);
+    } else if (u_viewDepthMap > 0.5) {
+        float depthValue = texture(u_depthMap, v_texcoord).r;
+        frag_color = vec4(vec3(depthValue), 1.0);
     } else {
         frag_color = vec4(gammaCorrect(color), 1.0);
     }
