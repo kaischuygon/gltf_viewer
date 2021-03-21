@@ -12,7 +12,7 @@ uniform vec3 u_lightPosition; // position of light source
 // Vertex inputs (attributes from vertex buffers)
 layout(location = 0) in vec4 a_position;
 layout(location = 2) in vec3 a_normal;
-layout(location = 3) in vec2 a_texcoord; // texture coordinate of the current vertex
+layout(location = 1) in vec2 a_texcoord; // texture coordinate of the current vertex
 
 // Vertex shader outputs
 // out vec3 v_color;
@@ -20,7 +20,7 @@ out vec3 N;
 out vec3 L;
 out vec3 V;
 
-out vec2 v_texcoord; // interpolated texture coordinate
+out vec2 texcoord; // interpolated texture coordinate
 
 void main() {
     // Calculate modelview matrix
@@ -39,7 +39,7 @@ void main() {
     // view vector
     V = normalize(-positionEye);
 
-    v_texcoord = a_texcoord;
+    texcoord = a_texcoord;
 
     mat4 MVP = u_projection * u_view * u_model;
     gl_Position = MVP * a_position;

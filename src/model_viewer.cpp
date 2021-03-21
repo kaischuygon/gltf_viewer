@@ -57,18 +57,21 @@ struct Context {
     bool lighting;
 
     bool quantizationEnabled;// = true;
-    const float qmap[3][8] = {
-        {0.3, 0.3, 0.4, 0.4, 0.4, 0.8, 0.8, 0.9},
-        {0.2, 0.2, 0.4, 0.4, 0.6, 0.6, 0.8, 0.8},
-        {0.3, 0.3, 0.3, 0.4, 0.4, 0.4, 0.8, 0.8},
-    };  // quantization map textures
+    const float qmap[3][8] = { // quantization map textures
+        {0.3, 0.3, 0.5, 0.5, 0.5, 0.7, 0.7, 0.9},
+        {0.3, 0.3, 0.4, 0.4, 0.6, 0.6, 0.8, 0.8},
+        {0.3, 0.3, 0.3, 0.6, 0.6, 0.6, 0.8, 0.8},
+    };
     int qmapIndex = 0;
     GLuint quantizationTexture;
 
-    GLuint depthProgram;
-    GLuint depthMapFBO;
-    GLuint depthMap;
-    bool viewDepthMap = true;
+    GLuint outlineProgram;
+    GLuint outlineFBO;
+    // GLuint depthRenderbuffer;
+    GLuint depthTexture;
+    bool viewDepth = true;
+    GLuint normalTexture;
+    bool viewNormals;
 };
 
 // Returns the absolute path to the src/shader directory
@@ -106,16 +109,52 @@ std::string gltf_dir(void)
 void do_initialization(Context &ctx)
 {
     ctx.program = cg::load_shader_program(shader_dir() + "mesh.vert", shader_dir() + "mesh.frag");
+    ctx.outlineProgram = cg::load_shader_program(shader_dir() + "outline.vert", shader_dir() + "outline.frag");
 
     gltf::load_gltf_asset(ctx.gltfFilename, gltf_dir(), ctx.asset);
     gltf::create_drawables_from_gltf_asset(ctx.drawables, ctx.asset);
     gltf::create_textures_from_gltf_asset(ctx.textures, ctx.asset);
 
-    ctx.depthProgram =
-        cg::load_shader_program(shader_dir() + "depth.vert", shader_dir() + "depth.frag");
+    // quantization initialization
+    glGenTextures(1, &ctx.quantizationTexture);
+    glBindTexture(GL_TEXTURE_1D, ctx.quantizationTexture);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glBindTexture(GL_TEXTURE_1D, 0);
+    
+    // outline framebuffer initialization
+    glGenFramebuffers(1, &ctx.outlineFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx.outlineFBO);
 
-    ctx.depthMap = cg::create_depth_texture(512, 512);
-    ctx.depthMapFBO = cg::create_depth_framebuffer(ctx.depthMap);
+    // normal map texture
+    glGenTextures(1, &ctx.normalTexture);
+    glBindTexture(GL_TEXTURE_2D, ctx.normalTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, ctx.width, ctx.height, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // depth texture
+    glGenTextures(1, &ctx.depthTexture);
+    glBindTexture(GL_TEXTURE_2D, ctx.depthTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, ctx.width, ctx.height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); 
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, ctx.normalTexture, 0);
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, ctx.depthTexture, 0);
+    GLenum DrawBuffers[2] = {GL_COLOR_ATTACHMENT0, GL_DEPTH_ATTACHMENT};
+    glDrawBuffers(2, DrawBuffers);
+
+    if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::cout << "Framebuffer not complete" << std::endl;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 void defineUniforms(Context &ctx) {
@@ -153,16 +192,17 @@ void defineUniforms(Context &ctx) {
     if (ctx.quantizationEnabled) glUniform1f(glGetUniformLocation(ctx.program, "u_toonEnabled"), 1.0f);
     else glUniform1f(glGetUniformLocation(ctx.program, "u_toonEnabled"), 0.0f);
     
-    if (ctx.viewDepthMap) glUniform1f(glGetUniformLocation(ctx.program, "u_viewDepthMap"), 1.0f);
-    else glUniform1f(glGetUniformLocation(ctx.program, "u_viewDepthMap"), 0.0f);
+    if (ctx.viewDepth) glUniform1f(glGetUniformLocation(ctx.program, "u_viewDepth"), 1.0f);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_viewDepth"), 0.0f);
+
+    if (ctx.viewNormals) glUniform1f(glGetUniformLocation(ctx.program, "u_viewNormals"), 1.0f);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_viewNormals"), 0.0f);
 }
 
-void draw_scene(Context &ctx)
+void draw_scene(Context &ctx, GLuint program)
 {
-    // Activate shader program
-    glUseProgram(ctx.program);
-
     // Set render state
+    glUseProgram(program);
     glEnable(GL_DEPTH_TEST);  // Enable Z-buffering
 
     glm::mat4 Projection = glm::mat4(1.0f);
@@ -171,15 +211,16 @@ void draw_scene(Context &ctx)
 
     // Projection Matrix
     if (ctx.ortho) Projection = glm::ortho(
-        -float(ctx.width / ctx.height), // left
+       -float(ctx.width / ctx.height),  // left
         float(ctx.width / ctx.height),  // right
-        -1.0f, 1.0f,                    // top, bottom
-        0.1f, 5.0f);                    // zNear, zFar
+       -1.0f, 1.0f,                     // top, bottom
+        1.f, 7.5f                      // zNear, zFar
+    );
     else Projection = glm::perspective( 
         glm::radians(ctx.zoom),         // FOV
         float(ctx.width / ctx.height),  // view ratio
-        0.1f, 10.0f);                   // zNear, zFar
-
+        1.f, 7.5f                      // zNear, zFar
+    );
     // Camera matrix
     View = glm::lookAt(
         glm::vec3(1, 1, 1),  // Camera is at (1,1,1) in World Space
@@ -192,43 +233,44 @@ void draw_scene(Context &ctx)
     glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1, 0, 0));
     glm::mat4 translationMatrix = glm::mat4(1.0f);
     Model = translationMatrix * rotationMatrix * scaleMatrix;
-
-    std::vector<std::string> selectedCubemap{"0.125/", "0.5/", "2/", "8/", "32/", "128/", "512/", "2048/"};
-    std::vector<std::string> selectedScene{"Forrest/", "LarnacaCastle/", "RomeChurch/"};
-
-    // set active texture unit (ASSIGNMENT 3 PART 2)
-    ctx.cubemap = cg::load_cubemap(cubemap_dir() + selectedScene[ctx.sceneIndex] + "prefiltered/" + selectedCubemap[ctx.textureIndex]);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, ctx.cubemap);
-
-    // Toon shading Quantization
-    glActiveTexture(GL_TEXTURE2);
-    glGenTextures(1, &ctx.quantizationTexture);
-    glBindTexture(GL_TEXTURE_1D, ctx.quantizationTexture);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexImage1D(GL_TEXTURE_1D, 0, GL_RED, 8, 0, GL_RED, GL_FLOAT, &ctx.qmap[ctx.qmapIndex]);
-
-    // Toon shading depthMap
-    glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, ctx.depthMap);
-
+    
     // Define per-scene uniforms
-    defineUniforms(ctx);
     glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_projection"), 1, GL_FALSE, &Projection[0][0]);
     glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_view"), 1, GL_FALSE, &View[0][0]);
     glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_model"), 1, GL_FALSE, &Model[0][0]);
+
+    defineUniforms(ctx);
+    // Cubemapping
+    std::vector<std::string> selectedCubemap{"0.125/", "0.5/", "2/", "8/", "32/", "128/", "512/", "2048/"};
+    std::vector<std::string> selectedScene{"Forrest/", "LarnacaCastle/", "RomeChurch/"};
+    ctx.cubemap = cg::load_cubemap(cubemap_dir() + selectedScene[ctx.sceneIndex] + "prefiltered/" + selectedCubemap[ctx.textureIndex]);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, ctx.cubemap);
     glUniform1i(glGetUniformLocation(ctx.program, "u_cubemap"), 0);
-    glUniform1i(glGetUniformLocation(ctx.program, "u_quantization"), 2);
-    glUniform1i(glGetUniformLocation(ctx.program, "u_depthMap"), 3);
-    
+
+    // Toon shading Quantization
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_1D, ctx.quantizationTexture);
+    glTexImage1D(GL_TEXTURE_1D, 0, GL_RED, 8, 0, GL_RED, GL_FLOAT, &ctx.qmap[ctx.qmapIndex]);
+    glUniform1i(glGetUniformLocation(ctx.program, "u_quantization"), 1);
+
+    // depth texture
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, ctx.depthTexture);
+    glUniform1i(glGetUniformLocation(ctx.program, "u_depthTexture"), 2);
+
+    // normal texture
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, ctx.normalTexture);
+    glUniform1i(glGetUniformLocation(ctx.program, "u_normalTexture"), 3);
+
     // Draw scene
     for (unsigned i = 0; i < ctx.asset.nodes.size(); ++i) {
         const gltf::Node &node = ctx.asset.nodes[i];
         const gltf::Drawable &drawable = ctx.drawables[node.mesh];
 
         // Define per-object uniforms
-
+        // ...
         // texture mapping (ASSIGNMENT 3 PART 3)
         const gltf::Mesh &mesh = ctx.asset.meshes[node.mesh];
         if (mesh.primitives[0].hasMaterial) {
@@ -240,9 +282,9 @@ void draw_scene(Context &ctx)
             if (pbr.hasBaseColorTexture) {
                 GLuint texture_id = ctx.textures[pbr.baseColorTexture.index];
                 // Bind texture and define uniforms...
-                glActiveTexture(GL_TEXTURE1);
+                glActiveTexture(GL_TEXTURE4);
                 glBindTexture(GL_TEXTURE_2D, texture_id);
-                glUniform1i(glGetUniformLocation(ctx.program, "u_texture"), 1);
+                glUniform1i(glGetUniformLocation(ctx.program, "u_texture"), 4);
             } else {
                 // Need to handle this case as well, by telling
                 // the shader that no texture is available
@@ -252,83 +294,28 @@ void draw_scene(Context &ctx)
 
         // Draw object
         glBindVertexArray(drawable.vao);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glDrawElements(GL_TRIANGLES, drawable.indexCount, drawable.indexType,
-                       (GLvoid *)(intptr_t)drawable.indexByteOffset);
+        glDrawElements(GL_TRIANGLES, drawable.indexCount, drawable.indexType, (GLvoid *)(intptr_t)drawable.indexByteOffset);
         glBindVertexArray(0);
     }
 
     // Clean up
     cg::reset_gl_render_state();
     glUseProgram(0);
-}
-
-// Update the shadowmap and shadow matrix for a light source
-void depth_scene(Context &ctx)
-{
-    glViewport(0, 0, 512, 512);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ctx.depthMapFBO);
-    glClear(GL_DEPTH_BUFFER_BIT);
-    
-    // Set up pipeline
-    glUseProgram(ctx.depthProgram);
-    glEnable(GL_DEPTH_TEST);  // Enable Z-buffering
-
-    // TODO Define view and projection matrices for the shadowmap camera. The
-    // view matrix should be a lookAt-matrix computed from the light source
-    // position, and the projection matrix should be a frustum that covers the
-    // parts of the scene that shall recieve shadows.
-    glm::mat4 view = glm::lookAt(
-        glm::vec3(1.0f, 1.0f, 1.0f),  // Camera is at (1,1,1) in World Space
-        glm::vec3(0.0f, 0.0f, 0.0f),  // looks at the origin
-        glm::vec3(0.0f, 1.0f, 0.0f)   // Head is up
-    );
-    glm::mat4 proj = glm::perspective( 
-        60.0f,              // FOV
-        float(512 / 512), // view ratio
-        1.0f, 20.0f         // zNear, zFar
-    );
-    // glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_view"), 1, GL_FALSE, &view[0][0]);
-    // glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_proj"), 1, GL_FALSE, &proj[0][0]);
-
-    // Store updated shadow matrix for use in draw_scene()
-    glm::mat4 projView = proj * view;
-    glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_lightSpace"), 1, GL_FALSE, &projView[0][0]);
-
-    // Draw scene
-    for (unsigned i = 0; i < ctx.asset.nodes.size(); ++i) {
-        const gltf::Node &node = ctx.asset.nodes[i];
-        const gltf::Drawable &drawable = ctx.drawables[node.mesh];
-
-        // TODO Define the model matrix for the drawable
-        glm::mat4 model = glm::mat4(1.0f);
-        glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_model"), 1, GL_FALSE, &model[0][0]);
-
-        // Draw object
-        glBindVertexArray(drawable.vao);
-        glDrawElements(GL_TRIANGLES, drawable.indexCount, drawable.indexType,
-                       (GLvoid *)(intptr_t)drawable.indexByteOffset);
-        glBindVertexArray(0);
-    }
-
-    // Clean up
-    cg::reset_gl_render_state();
-    glUseProgram(0);
-    glViewport(0, 0, ctx.width, ctx.height);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 }
 
 void do_rendering(Context &ctx)
 {
     cg::reset_gl_render_state();
 
-    // 1. first render to depth map
-    depth_scene(ctx);
-    // 2. then render scene as normal with shadow mapping (using depth map)
+    // 1. first render to outline framebuffer
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx.outlineFBO);
+    draw_scene(ctx, ctx.outlineProgram);
+    // 2. then render scene as normal
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glClearColor(ctx.bgColor[0], ctx.bgColor[1], ctx.bgColor[2], 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    draw_scene(ctx);
+
+    draw_scene(ctx, ctx.program);
 }
 
 void reload_shaders(Context *ctx)
@@ -480,11 +467,12 @@ int main(int argc, char *argv[])
             if (ImGui::CollapsingHeader("Toon Shading")) {
                 ImGui::Checkbox("Quantization", &ctx.quantizationEnabled);
                 if (ctx.quantizationEnabled) ImGui::SliderInt("Q-map", &ctx.qmapIndex, 0, 2);
-                ImGui::Checkbox("Depthmap", &ctx.viewDepthMap);
+                ImGui::Checkbox("View Depth Texture", &ctx.viewDepth);
             }
             if (ImGui::CollapsingHeader("Misc")) {
                 ImGui::Checkbox("Orthographic Projection", &ctx.ortho);
                 ImGui::Checkbox("Gamma Correction", &ctx.gamma);
+                ImGui::Checkbox("Show Normals", &ctx.viewNormals);
             }
         }
         ImGui::End();
