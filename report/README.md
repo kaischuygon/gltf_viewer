@@ -15,5 +15,7 @@ You can toggle all effects of the toon shader on and off, and all parts from the
 
 ### References
 [Cel Shading, Wikipedia](https://en.wikipedia.org/wiki/Cel_shading)
+
 [Sobel Operator, Wikipedia](https://en.wikipedia.org/wiki/Sobel_operator)
+
 [Framebuffers, open.gl](https://open.gl/framebuffers)
