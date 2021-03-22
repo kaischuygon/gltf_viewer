@@ -10,7 +10,6 @@ uniform float u_ambientEnabled;
 uniform float u_diffuseEnabled;
 uniform float u_specularEnabled;
 uniform float u_specularPower;
-uniform float u_viewNormals;
 
 uniform samplerCube u_cubemap;
 
@@ -23,8 +22,10 @@ uniform float u_quantizationEnabled; // enable quantization
 uniform sampler1D u_quantization; 
 uniform sampler2D u_depthTexture;
 uniform float u_viewDepth;
-const float offset = 1.0 / 300.0;
 uniform sampler2D u_normalTexture;
+uniform float u_viewNormals;
+uniform float u_viewOutline;
+uniform float u_outlineIntensity;
 
 in vec3 N; // view space normal vector
 in vec3 L; // view space light direction vector
@@ -37,6 +38,23 @@ out vec4 frag_color;
 vec3 gammaCorrect(vec3 color) { // gamma correction
     if(u_gamma > 0.5) return pow(color, vec3(1 / 2.2));
     return color;
+}
+
+float sobelFilter(sampler2D tex) {
+    vec4 top         = texture(tex, vec2(outlineTexcoord.x, outlineTexcoord.y + 1.0 / 200.0));
+    vec4 bottom      = texture(tex, vec2(outlineTexcoord.x, outlineTexcoord.y - 1.0 / 200.0));
+    vec4 left        = texture(tex, vec2(outlineTexcoord.x - 1.0 / 300.0, outlineTexcoord.y));
+    vec4 right       = texture(tex, vec2(outlineTexcoord.x + 1.0 / 300.0, outlineTexcoord.y));
+    vec4 topLeft     = texture(tex, vec2(outlineTexcoord.x - 1.0 / 300.0, outlineTexcoord.y + 1.0 / 200.0));
+    vec4 topRight    = texture(tex, vec2(outlineTexcoord.x + 1.0 / 300.0, outlineTexcoord.y + 1.0 / 200.0));
+    vec4 bottomLeft  = texture(tex, vec2(outlineTexcoord.x - 1.0 / 300.0, outlineTexcoord.y - 1.0 / 200.0));
+    vec4 bottomRight = texture(tex, vec2(outlineTexcoord.x + 1.0 / 300.0, outlineTexcoord.y - 1.0 / 200.0));
+    vec4 sx = -topLeft - 2 * left - bottomLeft + topRight   + 2 * right  + bottomRight;
+    vec4 sy = -topLeft - 2 * top  - topRight   + bottomLeft + 2 * bottom + bottomRight;
+    vec4 sobel = sqrt(sx * sx + sy * sy);
+
+    float average = (sobel.r + sobel.g + sobel.b) / 3;
+    return average;
 }
 
 void main() {
@@ -78,7 +96,10 @@ void main() {
         frag_color = vec4(vec3(depthValue), 1.0);
     } else if(u_viewTextureCoords > 0.5) { // texture coordinate visualization
         
-        frag_color = vec4(outlineTexcoord, 0.0, 0.0);
+        if(texcoord.x > 0 || texcoord.y > 0) // for lpshead model, who has different texture coordinates
+            frag_color = vec4(texcoord, 0.0, 0.0);
+        else
+            frag_color = vec4(outlineTexcoord, 0.0, 0.0);
     } else if (u_texMapping > 0.5) { // texture mapping
         vec4 textureColor = texture(u_texture, texcoord).rgba;
         if(u_lighting > 0.5) textureColor = textureColor * vec4(gammaCorrect(color), 1.0);
@@ -89,44 +110,14 @@ void main() {
         float colorScale = texture(u_quantization, lambertian).r;
         toonColor = toonColor * colorScale;
 
-        vec2 offsets[9] = vec2[](
-            vec2(-offset, offset),  // top-left
-            vec2( 0.0, offset),     // top-center
-            vec2( offset, offset),  // top-right
-            vec2(-offset, 0.0),     // center-left
-            vec2( 0.0, 0.0),        // center-center
-            vec2( offset, 0.0),     // center-right
-            vec2(-offset, -offset), // bottom-left
-            vec2( 0.0, -offset),    // bottom-center
-            vec2( offset, -offset)  // bottom-right    
-        );
-
-        float sobelX[9] = float[](
-            1, 0, -1,
-            2, 0, -2,
-            1, 0, -1
-        );
-
-        float sobelY[9] = float[](
-             1,  2,  1,
-             0,  0,  0,
-            -4, -2, -1
-        );
-
-        vec3 sampleTex[9];
-        for(int i = 0; i < 9; i++)
-            sampleTex[i] = vec3(texture(u_depthTexture, outlineTexcoord.st + offsets[i]));
-
-        vec3 gx = vec3(0.0);
-        vec3 gy = vec3(0.0);
-        for(int i = 0; i < 9; i++) {
-            gx += sampleTex[i] * sobelX[i];
-            gy += sampleTex[i] * sobelY[i];
+        if(u_viewOutline > 0.5f) {
+            float depthSobel = sobelFilter(u_depthTexture);
+            float normalSobel = sobelFilter(u_normalTexture);
+            float sobelIntensity = depthSobel + normalSobel / 2;
+            if(sobelIntensity > u_outlineIntensity)
+                toonColor = vec3(0.0);
         }
-
-        vec3 g = sqrt(gx * gx + gy * gy);
-
-        frag_color = vec4(gammaCorrect(toonColor - g), 1.0);
+        frag_color = vec4(gammaCorrect(toonColor), 1.0);
     } else {
         frag_color = vec4(gammaCorrect(color), 1.0);
     }

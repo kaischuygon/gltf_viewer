@@ -33,9 +33,9 @@ struct Context {
     GLuint program;
     GLuint emptyVAO;
     float elapsedTime;
-    std::string gltfFilename = "teapot.gltf";
+    std::string gltfFilename = "bunny.gltf";
     // Add more variables here...
-    glm::vec3 diffuseColor = glm::vec3(0.0f, 0.5f, 0.0f);
+    glm::vec3 diffuseColor = glm::vec3(0.5f, 0.0f, 0.5f);
     bool ambientEnabled = true;
     bool diffuseEnabled = true;
     bool specularEnabled;
@@ -56,7 +56,7 @@ struct Context {
     bool textureCoordinates;
     bool lighting;
 
-    bool quantizationEnabled;
+    bool quantizationEnabled = true;
     const float qmap[3][8] = { // quantization map textures
         {0.3, 0.3, 0.5, 0.5, 0.5, 0.7, 0.7, 0.9},
         {0.3, 0.3, 0.4, 0.4, 0.6, 0.6, 0.8, 0.8},
@@ -71,6 +71,8 @@ struct Context {
     GLuint depthTexture;
     bool viewNormals;
     GLuint normalTexture;
+    bool viewOutline = true;
+    float outlineIntensity = 0.55f;
 };
 
 // Returns the absolute path to the src/shader directory
@@ -197,6 +199,11 @@ void defineUniforms(Context &ctx) {
 
     if (ctx.viewNormals) glUniform1f(glGetUniformLocation(ctx.program, "u_viewNormals"), 1.0f);
     else glUniform1f(glGetUniformLocation(ctx.program, "u_viewNormals"), 0.0f);
+
+    if (ctx.viewOutline) glUniform1f(glGetUniformLocation(ctx.program, "u_viewOutline"), 1.0f);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_viewOutline"), 0.0f);
+
+    glUniform1f(glGetUniformLocation(ctx.program, "u_outlineIntensity"), ctx.outlineIntensity);
 }
 
 void draw_scene(Context &ctx, GLuint program)
@@ -266,6 +273,7 @@ void draw_scene(Context &ctx, GLuint program)
         // Model matrix : an identity matrix (model will be at the origin)
         glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), glm::vec3(0.75f));  // scale by 0.5
         glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1, 0, 0));
+        rotationMatrix = rotationMatrix * glm::rotate(glm::mat4(1.0f), glm::radians(-45.0f), glm::vec3(0, 0, 1));
         glm::mat4 translationMatrix = glm::mat4(1.0f);
         Model = translationMatrix * rotationMatrix * scaleMatrix;
         glUniformMatrix4fv(glGetUniformLocation(program, "u_model"), 1, GL_FALSE, &Model[0][0]);
@@ -309,6 +317,7 @@ void do_rendering(Context &ctx)
 
     // 1. first render to outline framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, ctx.outlineFBO);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     draw_scene(ctx, ctx.outlineProgram);
 
     // 2. then render scene as normal
@@ -469,6 +478,8 @@ int main(int argc, char *argv[])
             if (ImGui::CollapsingHeader("Toon Shading")) {
                 ImGui::Checkbox("Quantization", &ctx.quantizationEnabled);
                 if (ctx.quantizationEnabled) ImGui::SliderInt("Q-map", &ctx.qmapIndex, 0, 2);
+                if (ctx.quantizationEnabled) ImGui::Checkbox("Outline enabled", &ctx.viewOutline);
+                if (ctx.viewOutline) ImGui::SliderFloat("Intensity", &ctx.outlineIntensity, 0.4f, 1.f);
                 ImGui::Checkbox("View Depth Texture", &ctx.viewDepth);
                 ImGui::Checkbox("View Normal Texture", &ctx.viewNormals);
             }
