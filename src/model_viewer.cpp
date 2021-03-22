@@ -56,7 +56,7 @@ struct Context {
     bool textureCoordinates;
     bool lighting;
 
-    bool quantizationEnabled;// = true;
+    bool quantizationEnabled;
     const float qmap[3][8] = { // quantization map textures
         {0.3, 0.3, 0.5, 0.5, 0.5, 0.7, 0.7, 0.9},
         {0.3, 0.3, 0.4, 0.4, 0.6, 0.6, 0.8, 0.8},
@@ -67,11 +67,10 @@ struct Context {
 
     GLuint outlineProgram;
     GLuint outlineFBO;
-    // GLuint depthRenderbuffer;
+    bool viewDepth;
     GLuint depthTexture;
-    bool viewDepth = true;
-    GLuint normalTexture;
     bool viewNormals;
+    GLuint normalTexture;
 };
 
 // Returns the absolute path to the src/shader directory
@@ -123,13 +122,14 @@ void do_initialization(Context &ctx)
     glBindTexture(GL_TEXTURE_1D, 0);
     
     // outline framebuffer initialization
+    // screen quad VAO
     glGenFramebuffers(1, &ctx.outlineFBO);
     glBindFramebuffer(GL_FRAMEBUFFER, ctx.outlineFBO);
 
     // normal map texture
     glGenTextures(1, &ctx.normalTexture);
     glBindTexture(GL_TEXTURE_2D, ctx.normalTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, ctx.width, ctx.height, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, ctx.width, ctx.height, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -139,7 +139,7 @@ void do_initialization(Context &ctx)
     // depth texture
     glGenTextures(1, &ctx.depthTexture);
     glBindTexture(GL_TEXTURE_2D, ctx.depthTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, ctx.width, ctx.height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, ctx.width, ctx.height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -177,8 +177,8 @@ void defineUniforms(Context &ctx) {
     if (ctx.gamma) glUniform1f(glGetUniformLocation(ctx.program, "u_gamma"), 1.0f);
     else glUniform1f(glGetUniformLocation(ctx.program, "u_gamma"), 0.0f);
 
-    if (ctx.textureCoordinates) glUniform1f(glGetUniformLocation(ctx.program, "u_texCoordinates"), 1.0f);
-    else glUniform1f(glGetUniformLocation(ctx.program, "u_texCoordinates"), 0.0f);
+    if (ctx.textureCoordinates) glUniform1f(glGetUniformLocation(ctx.program, "u_viewTextureCoords"), 1.0f);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_viewTextureCoords"), 0.0f);
 
     if (ctx.envMapping) glUniform1f(glGetUniformLocation(ctx.program, "u_envMapping"), 1.0f);
     else glUniform1f(glGetUniformLocation(ctx.program, "u_envMapping"), 0.0f);
@@ -189,8 +189,8 @@ void defineUniforms(Context &ctx) {
     if (ctx.lighting) glUniform1f(glGetUniformLocation(ctx.program, "u_lighting"), 1.0f);
     else glUniform1f(glGetUniformLocation(ctx.program, "u_lighting"), 0.0f);
 
-    if (ctx.quantizationEnabled) glUniform1f(glGetUniformLocation(ctx.program, "u_toonEnabled"), 1.0f);
-    else glUniform1f(glGetUniformLocation(ctx.program, "u_toonEnabled"), 0.0f);
+    if (ctx.quantizationEnabled) glUniform1f(glGetUniformLocation(ctx.program, "u_quantizationEnabled"), 1.0f);
+    else glUniform1f(glGetUniformLocation(ctx.program, "u_quantizationEnabled"), 0.0f);
     
     if (ctx.viewDepth) glUniform1f(glGetUniformLocation(ctx.program, "u_viewDepth"), 1.0f);
     else glUniform1f(glGetUniformLocation(ctx.program, "u_viewDepth"), 0.0f);
@@ -214,12 +214,12 @@ void draw_scene(Context &ctx, GLuint program)
        -float(ctx.width / ctx.height),  // left
         float(ctx.width / ctx.height),  // right
        -1.0f, 1.0f,                     // top, bottom
-        1.f, 7.5f                      // zNear, zFar
+        1.f, 7.5f                       // zNear, zFar
     );
     else Projection = glm::perspective( 
         glm::radians(ctx.zoom),         // FOV
         float(ctx.width / ctx.height),  // view ratio
-        1.f, 7.5f                      // zNear, zFar
+        1.f, 7.5f                       // zNear, zFar
     );
     // Camera matrix
     View = glm::lookAt(
@@ -227,17 +227,10 @@ void draw_scene(Context &ctx, GLuint program)
         glm::vec3(0, 0, 0),  // looks at the origin
         glm::vec3(0, 1, 0)   // Head is up
         ) * glm::mat4(-ctx.trackball.orient);
-
-    // Model matrix : an identity matrix (model will be at the origin)
-    glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), glm::vec3(0.75f));  // scale by 0.5
-    glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1, 0, 0));
-    glm::mat4 translationMatrix = glm::mat4(1.0f);
-    Model = translationMatrix * rotationMatrix * scaleMatrix;
     
     // Define per-scene uniforms
-    glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_projection"), 1, GL_FALSE, &Projection[0][0]);
-    glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_view"), 1, GL_FALSE, &View[0][0]);
-    glUniformMatrix4fv(glGetUniformLocation(ctx.program, "u_model"), 1, GL_FALSE, &Model[0][0]);
+    glUniformMatrix4fv(glGetUniformLocation(program, "u_projection"), 1, GL_FALSE, &Projection[0][0]);
+    glUniformMatrix4fv(glGetUniformLocation(program, "u_view"), 1, GL_FALSE, &View[0][0]);
 
     defineUniforms(ctx);
     // Cubemapping
@@ -270,7 +263,13 @@ void draw_scene(Context &ctx, GLuint program)
         const gltf::Drawable &drawable = ctx.drawables[node.mesh];
 
         // Define per-object uniforms
-        // ...
+        // Model matrix : an identity matrix (model will be at the origin)
+        glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), glm::vec3(0.75f));  // scale by 0.5
+        glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1, 0, 0));
+        glm::mat4 translationMatrix = glm::mat4(1.0f);
+        Model = translationMatrix * rotationMatrix * scaleMatrix;
+        glUniformMatrix4fv(glGetUniformLocation(program, "u_model"), 1, GL_FALSE, &Model[0][0]);
+
         // texture mapping (ASSIGNMENT 3 PART 3)
         const gltf::Mesh &mesh = ctx.asset.meshes[node.mesh];
         if (mesh.primitives[0].hasMaterial) {
@@ -294,7 +293,8 @@ void draw_scene(Context &ctx, GLuint program)
 
         // Draw object
         glBindVertexArray(drawable.vao);
-        glDrawElements(GL_TRIANGLES, drawable.indexCount, drawable.indexType, (GLvoid *)(intptr_t)drawable.indexByteOffset);
+        glDrawElements(GL_TRIANGLES, drawable.indexCount, drawable.indexType, 
+            (GLvoid *)(intptr_t)drawable.indexByteOffset);
         glBindVertexArray(0);
     }
 
@@ -310,18 +310,21 @@ void do_rendering(Context &ctx)
     // 1. first render to outline framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, ctx.outlineFBO);
     draw_scene(ctx, ctx.outlineProgram);
+
     // 2. then render scene as normal
+    
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glClearColor(ctx.bgColor[0], ctx.bgColor[1], ctx.bgColor[2], 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
     draw_scene(ctx, ctx.program);
 }
 
 void reload_shaders(Context *ctx)
 {
     glDeleteProgram(ctx->program);
+    glDeleteProgram(ctx->outlineProgram);
     ctx->program = cg::load_shader_program(shader_dir() + "mesh.vert", shader_dir() + "mesh.frag");
+    ctx->outlineProgram = cg::load_shader_program(shader_dir() + "outline.vert", shader_dir() + "outline.frag");
 }
 
 void error_callback(int /*error*/, const char *description)
@@ -462,17 +465,17 @@ int main(int argc, char *argv[])
 
                 if (!ctx.envMapping) ImGui::Checkbox("Texture Mapping", &ctx.texMapping);
                 if (ctx.texMapping) ImGui::Checkbox("Blinn-Phong Lighting", &ctx.lighting);
-                if (ctx.texMapping) ImGui::Checkbox("Texture Coordinates", &ctx.textureCoordinates);
             }
             if (ImGui::CollapsingHeader("Toon Shading")) {
                 ImGui::Checkbox("Quantization", &ctx.quantizationEnabled);
                 if (ctx.quantizationEnabled) ImGui::SliderInt("Q-map", &ctx.qmapIndex, 0, 2);
                 ImGui::Checkbox("View Depth Texture", &ctx.viewDepth);
+                ImGui::Checkbox("View Normal Texture", &ctx.viewNormals);
             }
             if (ImGui::CollapsingHeader("Misc")) {
                 ImGui::Checkbox("Orthographic Projection", &ctx.ortho);
                 ImGui::Checkbox("Gamma Correction", &ctx.gamma);
-                ImGui::Checkbox("Show Normals", &ctx.viewNormals);
+                ImGui::Checkbox("Texture Coordinates", &ctx.textureCoordinates);
             }
         }
         ImGui::End();

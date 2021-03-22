@@ -15,11 +15,11 @@ uniform float u_viewNormals;
 uniform samplerCube u_cubemap;
 
 uniform sampler2D u_texture; // texture sampler
-uniform float u_texCoordinates; // enable visualization of texture coordinates
+uniform float u_viewTextureCoords; // enable visualization of texture coordinates
 uniform float u_texMapping; // enable texture mapping
 uniform float u_lighting;
 
-uniform float u_toonEnabled; // enable toon shading
+uniform float u_quantizationEnabled; // enable quantization
 uniform sampler1D u_quantization; 
 uniform sampler2D u_depthTexture;
 uniform float u_viewDepth;
@@ -31,6 +31,7 @@ in vec3 L; // view space light direction vector
 in vec3 V; // view vector
 
 in vec2 texcoord; // interpolated texture coordinate
+in vec2 outlineTexcoord;
 out vec4 frag_color;
 
 vec3 gammaCorrect(vec3 color) { // gamma correction
@@ -68,27 +69,64 @@ void main() {
         
         frag_color = vec4(gammaCorrect(color), 1.0);
     } else if (u_viewNormals > 0.5) {
-        vec3 rgb_normal = texture(u_normalTexture, texcoord).rgb;
+        vec3 rgb_normal = texture(u_normalTexture, outlineTexcoord).rgb;
 
         frag_color = vec4(rgb_normal, 1.0);
-    } else if(u_texCoordinates > 0.5) { // texture coordinate visualization
+    } else if (u_viewDepth > 0.5) {
+        float depthValue = texture(u_depthTexture, outlineTexcoord).x; // gl_FragCoord.z;
+
+        frag_color = vec4(vec3(depthValue), 1.0);
+    } else if(u_viewTextureCoords > 0.5) { // texture coordinate visualization
         
-        frag_color = vec4(texcoord, 0.0, 0.0);
+        frag_color = vec4(outlineTexcoord, 0.0, 0.0);
     } else if (u_texMapping > 0.5) { // texture mapping
         vec4 textureColor = texture(u_texture, texcoord).rgba;
         if(u_lighting > 0.5) textureColor = textureColor * vec4(gammaCorrect(color), 1.0);
         
         frag_color = textureColor;
-    } else if (u_toonEnabled > 0.5) { // toon shading
+    } else if (u_quantizationEnabled > 0.5) { // toon shading
         vec3 toonColor = color;
         float colorScale = texture(u_quantization, lambertian).r;
         toonColor = toonColor * colorScale;
 
-        frag_color = vec4(gammaCorrect(toonColor), 1.0);
-    } else if (u_viewDepth > 0.5) {
-        float depthValue = texture(u_depthTexture, texcoord).r;
+        vec2 offsets[9] = vec2[](
+            vec2(-offset, offset),  // top-left
+            vec2( 0.0, offset),     // top-center
+            vec2( offset, offset),  // top-right
+            vec2(-offset, 0.0),     // center-left
+            vec2( 0.0, 0.0),        // center-center
+            vec2( offset, 0.0),     // center-right
+            vec2(-offset, -offset), // bottom-left
+            vec2( 0.0, -offset),    // bottom-center
+            vec2( offset, -offset)  // bottom-right    
+        );
 
-        frag_color = vec4(vec3(depthValue), 1.0);
+        float sobelX[9] = float[](
+            1, 0, -1,
+            2, 0, -2,
+            1, 0, -1
+        );
+
+        float sobelY[9] = float[](
+             1,  2,  1,
+             0,  0,  0,
+            -4, -2, -1
+        );
+
+        vec3 sampleTex[9];
+        for(int i = 0; i < 9; i++)
+            sampleTex[i] = vec3(texture(u_depthTexture, outlineTexcoord.st + offsets[i]));
+
+        vec3 gx = vec3(0.0);
+        vec3 gy = vec3(0.0);
+        for(int i = 0; i < 9; i++) {
+            gx += sampleTex[i] * sobelX[i];
+            gy += sampleTex[i] * sobelY[i];
+        }
+
+        vec3 g = sqrt(gx * gx + gy * gy);
+
+        frag_color = vec4(gammaCorrect(toonColor - g), 1.0);
     } else {
         frag_color = vec4(gammaCorrect(color), 1.0);
     }

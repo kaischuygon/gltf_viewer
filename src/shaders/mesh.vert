@@ -21,6 +21,7 @@ out vec3 L;
 out vec3 V;
 
 out vec2 texcoord; // interpolated texture coordinate
+out vec2 outlineTexcoord;
 
 void main() {
     // Calculate modelview matrix
@@ -43,4 +44,6 @@ void main() {
 
     mat4 MVP = u_projection * u_view * u_model;
     gl_Position = MVP * a_position;
+
+    outlineTexcoord = (gl_Position.xy / gl_Position.w) * 0.5 + 0.5;
 }
