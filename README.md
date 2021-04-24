@@ -1,7 +1,35 @@
-# glTF Viewer (1TD388/1MD150)
+# glTF Viewer
 
-This code skeleton for a model viewer is used as starting point for the graphics programming assignments in the computer graphics courses 1TD388 and 1MD150 at Uppsala University. The skeleton provides code for reading basic scenes in the [glTF](https://github.com/KhronosGroup/glTF/) format (version 2.0), but does not support all features of the [specification](https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/README.md). For a short introduction to the glTF 2.0 format, see this [quick reference](https://www.khronos.org/files/gltf20-reference-guide.pdf).
+This glTF viewer is an extension of the [code skeleton](https://github.com/cg-uu/gltf_viewer) provided by Uppsala University's Computer Graphics course. It implements the following using OpenGL:
 
+* Varying variables and vertex attributes
+* Uniform variables
+* Surface normals and GUI
+* Transformations and 3D viewing
+* Basic per-vertex lighting 
+* Blinn-Phong shading
+* Normalized Blinn-Phong shading
+* Gamma correction
+* Image-based lighting (environment mapping)
+* Texture mapping
+* Shadow mapping
+* Framebuffers
+* Toon Shading (Cel-shading):
+    * Quantized lighting
+    *  Sobel edge detection
+
+## About the toon shading (cel-shading)
+As the final project for this course, I chose to implement cel-shading, a type of non-photorealistic rendering widely used in computer graphics to make objects appear flat and hand-drawn by limiting colors and adding outlines. A full report can be found [here](./report/finalReport.pdf). Basically, I calculated a depth and normal texture in a seperate framebuffer and applied the sobel operator to detect edges. The detected edges are then rendered black and the rest is rendered using the quantized lighting to create the full effect.  
+
+### Screenshots:
+Color quantization:
+![color quantization](./report/img2.png)
+Depth texture:
+![depth texture](./report/img3.png)
+Normal texture:
+![normal texture](./report/img4.png)
+Final Result: 
+![outlines](./report/img1.png)
 
 ## Build instructions for Linux
 
@@ -106,16 +134,6 @@ The application depends on the following third-party libraries, which are includ
 - ImGui v1.79 (https://github.com/ocornut/imgui)
 - rapidjson v1.1.0 (https://github.com/Tencent/rapidjson)
 - stb_image.h v2.26 (https://github.com/nothings/stb)
-
-
-## Other notes
-
-### Important To-Do's
-
-- Add support for materials with textures
-- Add support for interleaved vertex formats
-- Add support for inlined Base64-encoded buffers and textures
-
 
 ### Code style
 
